@@ -1135,7 +1135,7 @@ NTSTATUS set_thread_context( HANDLE handle, const context_t *context, BOOL *self
 NTSTATUS get_thread_context( HANDLE handle, context_t *context, unsigned int flags, BOOL *self )
 {
     NTSTATUS ret;
-    DWORD dummy, i;
+    DWORD dummy;
 
     SERVER_START_REQ( get_thread_context )
     {
@@ -1150,7 +1150,7 @@ NTSTATUS get_thread_context( HANDLE handle, context_t *context, unsigned int fla
 
     if (ret == STATUS_PENDING)
     {
-        for (i = 0; i < 100; i++)
+        while (TRUE)
         {
             SERVER_START_REQ( get_thread_context )
             {
@@ -1170,7 +1170,6 @@ NTSTATUS get_thread_context( HANDLE handle, context_t *context, unsigned int fla
             else break;
         }
         NtResumeThread( handle, &dummy );
-        if (ret == STATUS_PENDING) ret = STATUS_ACCESS_DENIED;
     }
     return ret;
 }
