@@ -361,6 +361,7 @@ TEB *thread_init(void)
     thread_data->wait_fd[1] = -1;
     thread_data->esync_queue_fd = -1;
     thread_data->esync_apc_fd = -1;
+    thread_data->fsync_apc_futex = NULL;
 
     signal_init_thread( teb );
     virtual_init_threading();
@@ -762,6 +763,7 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle_ptr, ACCESS_MASK access, OBJECT
     thread_data->start_stack = (char *)teb->Tib.StackBase;
     thread_data->esync_queue_fd = -1;
     thread_data->esync_apc_fd = -1;
+    thread_data->fsync_apc_futex = NULL;
 
     pthread_attr_init( &pthread_attr );
     pthread_attr_setstack( &pthread_attr, teb->DeallocationStack,
@@ -1137,7 +1139,7 @@ NTSTATUS set_thread_context( HANDLE handle, const context_t *context, BOOL *self
 NTSTATUS get_thread_context( HANDLE handle, context_t *context, unsigned int flags, BOOL *self )
 {
     NTSTATUS ret;
-    DWORD dummy, i;
+    DWORD dummy;
 
     SERVER_START_REQ( get_thread_context )
     {
@@ -1152,7 +1154,7 @@ NTSTATUS get_thread_context( HANDLE handle, context_t *context, unsigned int fla
 
     if (ret == STATUS_PENDING)
     {
-        for (i = 0; i < 100; i++)
+        while (TRUE)
         {
             SERVER_START_REQ( get_thread_context )
             {
@@ -1172,7 +1174,6 @@ NTSTATUS get_thread_context( HANDLE handle, context_t *context, unsigned int fla
             else break;
         }
         NtResumeThread( handle, &dummy );
-        if (ret == STATUS_PENDING) ret = STATUS_ACCESS_DENIED;
     }
     return ret;
 }
