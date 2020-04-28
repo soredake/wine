@@ -52,6 +52,7 @@
 #include "ntdll_misc.h"
 #include "ddk/wdm.h"
 #include "esync.h"
+#include "fsync.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(module);
 WINE_DECLARE_DEBUG_CHANNEL(relay);
@@ -1290,7 +1291,7 @@ static WINE_MODREF *alloc_module( HMODULE hModule, const UNICODE_STRING *nt_name
     RtlInitUnicodeString( &wm->ldr.FullDllName, buffer );
     RtlInitUnicodeString( &wm->ldr.BaseDllName, p );
 
-    if (!is_dll_native_subsystem( &wm->ldr, nt, p ))
+    if (!(nt->FileHeader.Characteristics & IMAGE_FILE_DLL) || !is_dll_native_subsystem( &wm->ldr, nt, p ))
     {
         if (nt->FileHeader.Characteristics & IMAGE_FILE_DLL)
             wm->ldr.Flags |= LDR_IMAGE_IS_DLL;
@@ -1456,7 +1457,7 @@ static NTSTATUS MODULE_InitDLL( WINE_MODREF *wm, UINT reason, LPVOID lpReserved 
     if (wm->ldr.Flags & LDR_DONT_RESOLVE_REFS) return STATUS_SUCCESS;
     if (wm->ldr.TlsIndex != -1) call_tls_callbacks( wm->ldr.DllBase, reason );
     if (wm->so_handle && reason == DLL_PROCESS_ATTACH) call_constructors( wm );
-    if (!entry) return STATUS_SUCCESS;
+    if (!entry || !(wm->ldr.Flags & LDR_IMAGE_IS_DLL)) return STATUS_SUCCESS;
 
     memset( mod_name, 0, sizeof(mod_name) );
 
@@ -1610,7 +1611,6 @@ static void attach_implicitly_loaded_dlls( LPVOID reserved )
         {
             LDR_DATA_TABLE_ENTRY *mod = CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
 
-            if (!(mod->Flags & LDR_IMAGE_IS_DLL)) continue;
             if (mod->Flags & (LDR_LOAD_IN_PROGRESS | LDR_PROCESS_ATTACHED)) continue;
             TRACE( "found implicitly loaded %s, attaching to it\n",
                    debugstr_w(mod->BaseDllName.Buffer));
@@ -2728,6 +2728,127 @@ static NTSTATUS open_dll_file( UNICODE_STRING *nt_name, WINE_MODREF **pwm,
         status = STATUS_IMAGE_MACHINE_TYPE_MISMATCH;
     }
     return status;
+}
+
+/***************************************************************************
+ *	get_basename
+ *
+ * Return the base name of a file name (i.e. remove the path components).
+ */
+static const WCHAR *get_basename( const WCHAR *name )
+{
+    const WCHAR *ptr;
+
+    if (name[0] && name[1] == ':') name += 2;  /* strip drive specification */
+    if ((ptr = strrchrW( name, '\\' ))) name = ptr + 1;
+    if ((ptr = strrchrW( name, '/' ))) name = ptr + 1;
+    return name;
+}
+
+
+/***************************************************************************
+ *	large_address_aware_env
+ *
+ * Checks for override for LARGE_ADDRESS_AWARE bit in environment. Takes
+ * precedence over any AppDefaults registry entry.
+ *
+ * Returns:
+ *    -1 if not defined in environment (prefer registry entries)
+ *     0 if disabled
+ *     1 if enabled
+ */
+static int large_address_aware_env( void )
+{
+    static int large_address_aware_cached = -2;
+
+    if (large_address_aware_cached == -2) {
+        const char *envvar = getenv("WINE_LARGE_ADDRESS_AWARE");
+        if (envvar)
+            large_address_aware_cached = atoi(envvar);
+        else
+            large_address_aware_cached = -1;
+    }
+
+    return large_address_aware_cached;
+}
+
+/***************************************************************************
+ *	needs_override_large_address_aware
+ *
+ * Checks for AppDefaults override for LARGE_ADDRESS_AWARE bit.
+ *
+ * Returns:
+ *    TRUE  if override was found in the registry, or environment variable
+ *          explicitly enabled this override
+ *    FALSE if no override was found in the registry, or environment variable
+ *          explicitly disabled this override
+ */
+static BOOL needs_override_large_address_aware(const WCHAR *exename)
+{
+    BOOL result;
+    OBJECT_ATTRIBUTES attr;
+    UNICODE_STRING nameW;
+    UNICODE_STRING valueNameW;
+    HANDLE root;
+    WCHAR *str;
+    static const WCHAR AppDefaultsW[] = {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\',
+                                         'A','p','p','D','e','f','a','u','l','t','s','\\',0};
+    static const WCHAR LargeAddressAwareW[] = {'L','a','r','g','e','A','d','d','r','e','s','s','A','w','a','r','e',0};
+    char tmp[64];
+    KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)tmp;
+    DWORD count;
+    int env_override;
+    HANDLE app_key = (HANDLE)-1;
+
+    /* Environment variable takes precedence. */
+    env_override = large_address_aware_env();
+    if (large_address_aware_env() >= 0)
+        return env_override;
+
+    exename = get_basename(exename);
+
+    if (app_key != (HANDLE)-1) return TRUE;
+
+    str = RtlAllocateHeap( GetProcessHeap(), 0,
+                           sizeof(AppDefaultsW) + strlenW(exename) * sizeof(WCHAR) );
+    if (!str) return FALSE;
+    strcpyW( str, AppDefaultsW );
+    strcatW( str, exename );
+
+    RtlOpenCurrentUser( KEY_ALL_ACCESS, &root );
+    attr.Length = sizeof(attr);
+    attr.RootDirectory = root;
+    attr.ObjectName = &nameW;
+    attr.Attributes = 0;
+    attr.SecurityDescriptor = NULL;
+    attr.SecurityQualityOfService = NULL;
+    RtlInitUnicodeString( &nameW, str );
+    RtlInitUnicodeString( &valueNameW, LargeAddressAwareW );
+
+    result = TRUE;
+
+    /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe */
+    if (!NtOpenKey( &app_key, KEY_ALL_ACCESS, &attr ))
+    {
+        if (!NtQueryValueKey( app_key, &valueNameW, KeyValuePartialInformation, tmp, sizeof(tmp)-1, &count))
+        {
+            if (info->DataLength >= sizeof(DWORD))
+            {
+                if ((*(DWORD *)info->Data) == 0)
+                    result = FALSE;
+            }
+        }
+        NtClose( app_key );
+    }
+    NtClose( root );
+    RtlFreeHeap( GetProcessHeap(), 0, str );
+    return result;
+}
+
+BOOL CDECL __wine_needs_override_large_address_aware(void)
+{
+    PEB *peb = NtCurrentTeb()->Peb;
+    return needs_override_large_address_aware(peb->ProcessParameters->ImagePathName.Buffer);
 }
 
 
@@ -4211,10 +4332,7 @@ void WINAPI LdrInitializeThunk( CONTEXT *context, void **entry, ULONG_PTR unknow
 {
     static const unsigned int fls_slot_count = 8 * sizeof(NtCurrentTeb()->Peb->FlsBitmapBits);
     static const LARGE_INTEGER zero;
-    static int attach_done;
-    int i;
     NTSTATUS status;
-    ULONG_PTR cookie;
     WINE_MODREF *wm;
     LPCWSTR load_path = NtCurrentTeb()->Peb->ProcessParameters->DllPath.Buffer;
 
@@ -4267,38 +4385,27 @@ void WINAPI LdrInitializeThunk( CONTEXT *context, void **entry, ULONG_PTR unknow
     InsertTailList(&NtCurrentTeb()->Peb->FlsListHead, (LIST_ENTRY *)NtCurrentTeb()->FlsSlots);
     unlock_fls_section( NULL );
 
-    if (!attach_done)  /* first time around */
+    if (!(wm->ldr.Flags & LDR_PROCESS_ATTACHED))  /* first time around */
     {
-        attach_done = 1;
         if ((status = alloc_thread_tls()) != STATUS_SUCCESS)
         {
             ERR( "TLS init  failed when loading %s, status %x\n",
                  debugstr_w(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer), status );
             NtTerminateProcess( GetCurrentProcess(), status );
         }
-        wm->ldr.LoadCount = -1;
-        wm->ldr.Flags |= LDR_PROCESS_ATTACHED;  /* don't try to attach again */
-        if (wm->ldr.ActivationContext)
-            RtlActivateActivationContext( 0, wm->ldr.ActivationContext, &cookie );
-
-        for (i = 0; i < wm->nDeps; i++)
+        if ((status = process_attach( wm, context )) != STATUS_SUCCESS)
         {
-            if (!wm->deps[i]) continue;
-            if ((status = process_attach( wm->deps[i], context )) != STATUS_SUCCESS)
-            {
-                if (last_failed_modref)
-                    ERR( "%s failed to initialize, aborting\n",
-                         debugstr_w(last_failed_modref->ldr.BaseDllName.Buffer) + 1 );
-                ERR( "Initializing dlls for %s failed, status %x\n",
-                     debugstr_w(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer), status );
-                NtTerminateProcess( GetCurrentProcess(), status );
-            }
+            if (last_failed_modref)
+                ERR( "%s failed to initialize, aborting\n",
+                     debugstr_w(last_failed_modref->ldr.BaseDllName.Buffer) + 1 );
+            ERR( "Initializing dlls for %s failed, status %x\n",
+                 debugstr_w(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer), status );
+            NtTerminateProcess( GetCurrentProcess(), status );
         }
         attach_implicitly_loaded_dlls( context );
         virtual_release_address_space();
         if (wm->ldr.TlsIndex != -1) call_tls_callbacks( wm->ldr.DllBase, DLL_PROCESS_ATTACH );
         if (wm->so_handle) call_constructors( wm );
-        if (wm->ldr.ActivationContext) RtlDeactivateActivationContext( 0, cookie );
     }
     else
     {
@@ -4794,6 +4901,7 @@ void __wine_process_init(void)
     peb->ProcessHeap = RtlCreateHeap( HEAP_GROWABLE, NULL, 0, 0, NULL, NULL );
     peb->LoaderLock = &loader_section;
 
+    fsync_init();
     esync_init();
 
     init_unix_codepage();
@@ -4887,7 +4995,7 @@ void __wine_process_init(void)
     user_shared_data_init();
     hidden_exports_init( wm->ldr.FullDllName.Buffer );
 
-    virtual_set_large_address_space();
+    virtual_set_large_address_space(needs_override_large_address_aware(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer));
 
     /* elevate process if necessary */
     status = RtlQueryInformationActivationContext( 0, NULL, 0, RunlevelInformationInActivationContext,
