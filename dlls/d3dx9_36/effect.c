@@ -4309,9 +4309,7 @@ static HRESULT WINAPI d3dx_effect_CloneEffect(ID3DXEffect *iface, IDirect3DDevic
     if (!device)
         return D3DERR_INVALIDCALL;
 
-    iface->lpVtbl->AddRef(iface);
-    *new_effect = iface;
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 #if D3DX_SDK_VERSION >= 27

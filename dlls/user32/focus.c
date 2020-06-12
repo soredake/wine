@@ -78,7 +78,7 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
 {
     HWND previous = GetActiveWindow();
     BOOL ret;
-    DWORD winflags, old_thread, new_thread;
+    DWORD old_thread, new_thread;
     CBTACTIVATESTRUCT cbt;
 
     if (previous == hwnd)
@@ -87,24 +87,16 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
         return TRUE;
     }
 
-    /* Prevent a recursive activation loop with the activation messages */
-    winflags = win_set_flags(hwnd, WIN_IS_IN_ACTIVATION, 0);
-    if (!(winflags & WIN_IS_IN_ACTIVATION))
+    /* call CBT hook chain */
+    cbt.fMouse     = mouse;
+    cbt.hWndActive = previous;
+    if (HOOK_CallHooks( WH_CBT, HCBT_ACTIVATE, (WPARAM)hwnd, (LPARAM)&cbt, TRUE )) return FALSE;
+
+    if (IsWindow(previous))
     {
-        ret = FALSE;
-
-        /* call CBT hook chain */
-        cbt.fMouse     = mouse;
-        cbt.hWndActive = previous;
-        if (HOOK_CallHooks( WH_CBT, HCBT_ACTIVATE, (WPARAM)hwnd, (LPARAM)&cbt, TRUE ))
-            goto clear_flags;
-
-        if (IsWindow(previous))
-        {
-            SendMessageW( previous, WM_NCACTIVATE, FALSE, (LPARAM)hwnd );
-            SendMessageW( previous, WM_ACTIVATE,
-                          MAKEWPARAM( WA_INACTIVE, IsIconic(previous) ), (LPARAM)hwnd );
-        }
+        SendMessageW( previous, WM_NCACTIVATE, FALSE, (LPARAM)hwnd );
+        SendMessageW( previous, WM_ACTIVATE,
+                      MAKEWPARAM( WA_INACTIVE, IsIconic(previous) ), (LPARAM)hwnd );
     }
 
     SERVER_START_REQ( set_active_window )
@@ -114,9 +106,9 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
             previous = wine_server_ptr_handle( reply->previous );
     }
     SERVER_END_REQ;
-    if (!ret) goto clear_flags;
+    if (!ret) return FALSE;
     if (prev) *prev = previous;
-    if (previous == hwnd) goto clear_flags;
+    if (previous == hwnd) return TRUE;
 
     if (hwnd)
     {
@@ -124,11 +116,7 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
         if (SendMessageW( hwnd, WM_QUERYNEWPALETTE, 0, 0 ))
             SendMessageTimeoutW( HWND_BROADCAST, WM_PALETTEISCHANGING, (WPARAM)hwnd, 0,
                                  SMTO_ABORTIFHUNG, 2000, NULL );
-        if (!IsWindow(hwnd))
-        {
-            ret = FALSE;
-            goto clear_flags;
-        }
+        if (!IsWindow(hwnd)) return FALSE;
     }
 
     old_thread = previous ? GetWindowThreadProcessId( previous, NULL ) : 0;
@@ -160,7 +148,7 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
         }
     }
 
-    if (!(winflags & WIN_IS_IN_ACTIVATION) && IsWindow(hwnd))
+    if (IsWindow(hwnd))
     {
         SendMessageW( hwnd, WM_NCACTIVATE, (hwnd == GetForegroundWindow()), (LPARAM)previous );
         SendMessageW( hwnd, WM_ACTIVATE,
@@ -168,9 +156,6 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
                       (LPARAM)previous );
         if (GetAncestor( hwnd, GA_PARENT ) == GetDesktopWindow())
             PostMessageW( GetDesktopWindow(), WM_PARENTNOTIFY, WM_NCACTIVATE, (LPARAM)hwnd );
-
-        if (hwnd == GetForegroundWindow() && !IsIconic( hwnd ))
-            USER_Driver->pSetActiveWindow( hwnd );
     }
 
     /* now change focus if necessary */
@@ -188,9 +173,7 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
         }
     }
 
-clear_flags:
-    win_set_flags(hwnd, 0, WIN_IS_IN_ACTIVATION);
-    return ret;
+    return TRUE;
 }
 
 

@@ -5,5 +5,4 @@ EXTRADLLFLAGS = -mno-cygwin
 
 C_SRCS = \
 	main.c \
-	sendmail.c \
-	xdg-email.c
+	sendmail.c

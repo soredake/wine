@@ -512,6 +512,8 @@ int WINAPI __WSAFDIsSet(SOCKET,WS(fd_set)*);
 #endif /* WS_DEFINE_SELECT */
 
 /* we have to define hton/ntoh as macros to avoid conflicts with Unix headers */
+#ifndef USE_WS_PREFIX
+
 #undef htonl
 #undef htons
 #undef ntohl
@@ -548,6 +550,8 @@ static inline ULONG __wine_ulong_swap(ULONG l)
 #define ntohs __wine_ushort_swap
 
 #endif  /* WORDS_BIGENDIAN */
+
+#endif  /* USE_WS_PREFIX */
 
 /*
  * Internet address (old style... should be updated)
@@ -831,7 +835,6 @@ typedef struct WS(WSAData)
 
 /* internal per-socket flags */
 #ifdef __WINESRC__
-#define FD_WINE_REUSE              0x08000000
 #define FD_WINE_LISTENING          0x10000000
 #define FD_WINE_NONBLOCKING        0x20000000
 #define FD_WINE_CONNECTED          0x40000000

@@ -445,7 +445,6 @@
 @ stdcall InsertMenuItemA(long long long ptr)
 @ stdcall InsertMenuItemW(long long long ptr)
 @ stdcall InsertMenuW(long long long long ptr)
-@ stdcall InternalGetWindowIcon(long long)
 @ stdcall InternalGetWindowText(long ptr long)
 @ stdcall IntersectRect(ptr ptr ptr)
 @ stdcall InvalidateRect(long ptr long)
@@ -498,7 +497,7 @@
 @ stdcall LoadImageA(long str long long long long)
 @ stdcall LoadImageW(long wstr long long long long)
 @ stdcall LoadKeyboardLayoutA(str long)
-@ stdcall LoadKeyboardLayoutEx(long wstr long)
+# @ stub LoadKeyboardLayoutEx
 @ stdcall LoadKeyboardLayoutW(wstr long)
 @ stdcall LoadLocalFonts()
 @ stdcall LoadMenuA(long str)
@@ -834,5 +833,5 @@
 # All functions must be prefixed with '__wine_' (for internal functions)
 # or 'wine_' (for user-visible functions) to avoid namespace conflicts.
 #
-@ cdecl __wine_send_input(long ptr long)
+@ cdecl __wine_send_input(long ptr)
 @ cdecl __wine_set_pixel_format(long long)
