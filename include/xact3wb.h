@@ -18,8 +18,6 @@
 #ifndef __XACT3WB_H__
 #define __XACT3WB_H__
 
-#define WAVEBANK_ENTRYNAME_LENGTH   64
-
 typedef union WAVEBANKMINIWAVEFORMAT
 {
     struct

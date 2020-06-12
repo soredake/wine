@@ -614,12 +614,9 @@ HIMC WINAPI ImmAssociateContext(HWND hWnd, HIMC hIMC)
     if (!hIMC)
         return old;
 
-    if(GetActiveWindow() == data->IMC.hWnd)
-    {
-        SendMessageW(data->IMC.hWnd, WM_IME_SETCONTEXT, FALSE, ISC_SHOWUIALL);
-        data->IMC.hWnd = hWnd;
-        SendMessageW(data->IMC.hWnd, WM_IME_SETCONTEXT, TRUE, ISC_SHOWUIALL);
-    }
+    SendMessageW(data->IMC.hWnd, WM_IME_SETCONTEXT, FALSE, ISC_SHOWUIALL);
+    data->IMC.hWnd = hWnd;
+    SendMessageW(data->IMC.hWnd, WM_IME_SETCONTEXT, TRUE, ISC_SHOWUIALL);
 
     return old;
 }

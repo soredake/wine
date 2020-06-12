@@ -79,7 +79,6 @@ static const struct object_ops ranges_ops =
     NULL,                      /* unlink_name */
     no_open_file,              /* open_file */
     no_kernel_obj_list,        /* get_kernel_obj_list */
-    no_alloc_handle,           /* alloc_handle */
     no_close_handle,           /* close_handle */
     ranges_destroy             /* destroy */
 };
@@ -115,7 +114,6 @@ static const struct object_ops shared_map_ops =
     NULL,                      /* unlink_name */
     no_open_file,              /* open_file */
     no_kernel_obj_list,        /* get_kernel_obj_list */
-    no_alloc_handle,           /* alloc_handle */
     no_close_handle,           /* close_handle */
     shared_map_destroy         /* destroy */
 };
@@ -173,7 +171,6 @@ static const struct object_ops mapping_ops =
     default_unlink_name,         /* unlink_name */
     no_open_file,                /* open_file */
     no_kernel_obj_list,          /* get_kernel_obj_list */
-    no_alloc_handle,             /* alloc_handle */
     fd_close_handle,             /* close_handle */
     mapping_destroy              /* destroy */
 };
@@ -918,7 +915,8 @@ static void mapping_dump( struct object *obj, int verbose )
 
 static struct object_type *mapping_get_type( struct object *obj )
 {
-    static const struct unicode_str str = { type_Section, sizeof(type_Section) };
+    static const WCHAR name[] = {'S','e','c','t','i','o','n'};
+    static const struct unicode_str str = { name, sizeof(name) };
     return get_object_type( &str );
 }
 
@@ -966,11 +964,7 @@ struct object *create_user_data_mapping( struct object *root, const struct unico
     if (!(mapping = create_mapping( root, name, OBJ_OPENIF, sizeof(KSHARED_USER_DATA),
                                     SEC_COMMIT, 0, FILE_READ_DATA | FILE_WRITE_DATA, NULL ))) return NULL;
     ptr = mmap( NULL, mapping->size, PROT_WRITE, MAP_SHARED, get_unix_fd( mapping->fd ), 0 );
-    if (ptr != MAP_FAILED)
-    {
-        user_shared_data = ptr;
-        user_shared_data->SystemCallPad[0] = 1;
-    }
+    if (ptr != MAP_FAILED) user_shared_data = ptr;
     return &mapping->obj;
 }
 

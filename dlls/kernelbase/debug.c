@@ -213,23 +213,6 @@ void WINAPI DECLSPEC_HOTPATCH OutputDebugStringA( LPCSTR str )
     __ENDTRY
     if (caught_by_dbg) return;
 
-    /* for some unknown reason Windows sends the exception a second time, if a
-     * debugger is attached, and the event wasn't handled in the first attempt */
-    if (NtCurrentTeb()->Peb->BeingDebugged)
-    {
-        __TRY
-        {
-            ULONG_PTR args[2];
-            args[0] = strlen(str) + 1;
-            args[1] = (ULONG_PTR)str;
-            RaiseException( DBG_PRINTEXCEPTION_C, 0, 2, args );
-        }
-        __EXCEPT(debug_exception_handler)
-        {
-        }
-        __ENDTRY
-    }
-
     /* send string to a system-wide monitor */
     if (!mutex_inited)
     {
@@ -644,7 +627,6 @@ static BOOL start_debugger( EXCEPTION_POINTERS *epointers, HANDLE event )
     TRACE( "Starting debugger %s\n", debugstr_w(cmdline) );
     memset( &startup, 0, sizeof(startup) );
     startup.cb = sizeof(startup);
-    startup.lpDesktop = L"WinSta0";
     startup.dwFlags = STARTF_USESHOWWINDOW;
     startup.wShowWindow = SW_SHOWNORMAL;
     ret = CreateProcessW( NULL, cmdline, NULL, NULL, TRUE, 0, env, NULL, &startup, &info );
@@ -1467,6 +1449,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH K32GetPerformanceInfo( PPERFORMANCE_INFORMATION in
 {
     SYSTEM_PERFORMANCE_INFORMATION perf;
     SYSTEM_BASIC_INFORMATION basic;
+    SYSTEM_PROCESS_INFORMATION *process, *spi;
     DWORD info_size;
     NTSTATUS status;
 
@@ -1479,9 +1462,9 @@ BOOL WINAPI DECLSPEC_HOTPATCH K32GetPerformanceInfo( PPERFORMANCE_INFORMATION in
     }
 
     status = NtQuerySystemInformation( SystemPerformanceInformation, &perf, sizeof(perf), NULL );
-    if (status) goto err;
+    if (!set_ntstatus( status )) return FALSE;
     status = NtQuerySystemInformation( SystemBasicInformation, &basic, sizeof(basic), NULL );
-    if (status) goto err;
+    if (!set_ntstatus( status )) return FALSE;
 
     info->cb                 = sizeof(*info);
     info->CommitTotal        = perf.TotalCommittedPages;
@@ -1495,24 +1478,37 @@ BOOL WINAPI DECLSPEC_HOTPATCH K32GetPerformanceInfo( PPERFORMANCE_INFORMATION in
     info->KernelNonpaged     = perf.NonPagedPoolUsage;
     info->PageSize           = basic.PageSize;
 
-    SERVER_START_REQ( get_system_info )
+    /* fields from SYSTEM_PROCESS_INFORMATION */
+    NtQuerySystemInformation( SystemProcessInformation, NULL, 0, &info_size );
+    for (;;)
     {
-        status = wine_server_call( req );
-        if (!status)
+        process = HeapAlloc( GetProcessHeap(), 0, info_size );
+        if (!process)
         {
-            info->ProcessCount = reply->processes;
-            info->HandleCount = reply->handles;
-            info->ThreadCount = reply->threads;
+            SetLastError( ERROR_OUTOFMEMORY );
+            return FALSE;
+        }
+        status = NtQuerySystemInformation( SystemProcessInformation, process, info_size, &info_size );
+        if (!status) break;
+        HeapFree( GetProcessHeap(), 0, process );
+        if (status != STATUS_INFO_LENGTH_MISMATCH)
+        {
+            SetLastError( RtlNtStatusToDosError( status ) );
+            return FALSE;
         }
     }
-    SERVER_END_REQ;
-
-    if (status) goto err;
+    info->HandleCount = info->ProcessCount = info->ThreadCount = 0;
+    spi = process;
+    for (;;)
+    {
+        info->ProcessCount++;
+        info->HandleCount += spi->HandleCount;
+        info->ThreadCount += spi->dwThreadCount;
+        if (spi->NextEntryOffset == 0) break;
+        spi = (SYSTEM_PROCESS_INFORMATION *)((char *)spi + spi->NextEntryOffset);
+    }
+    HeapFree( GetProcessHeap(), 0, process );
     return TRUE;
-
-err:
-    SetLastError( RtlNtStatusToDosError( status ) );
-    return FALSE;
 }
 
 

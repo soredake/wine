@@ -26,7 +26,7 @@
 @ stub GetDurationFormatEx
 @ stub GetFileAttributesTransactedW
 @ stub GetFirmwareType
-@ stdcall GetMaximumProcessorGroupCount() kernel32.GetMaximumProcessorGroupCount
+@ stub GetMaximumProcessorGroupCount
 @ stdcall GetNamedPipeClientProcessId(long ptr) kernel32.GetNamedPipeClientProcessId
 @ stdcall GetNamedPipeServerProcessId(long ptr) kernel32.GetNamedPipeServerProcessId
 @ stdcall GetNumaAvailableMemoryNodeEx(long ptr) kernel32.GetNumaAvailableMemoryNodeEx

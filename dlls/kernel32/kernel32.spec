@@ -717,7 +717,7 @@
 @ stdcall -import GetLongPathNameW(wstr ptr long)
 @ stdcall GetMailslotInfo(long ptr ptr ptr ptr)
 @ stdcall GetMaximumProcessorCount(long)
-@ stdcall GetMaximumProcessorGroupCount()
+# @ stub GetMaximumProcessorGroupCount
 @ stdcall -import GetModuleFileNameA(long ptr long)
 @ stdcall -import GetModuleFileNameW(long ptr long)
 @ stdcall -import GetModuleHandleA(str)

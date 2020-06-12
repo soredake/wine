@@ -142,7 +142,7 @@ NTSTATUS WINAPI LsaAddAccountRights(
  */
 NTSTATUS WINAPI LsaClose(IN LSA_HANDLE ObjectHandle)
 {
-    TRACE("(%p) semi-stub\n", ObjectHandle);
+    FIXME("(%p) stub\n", ObjectHandle);
     return STATUS_SUCCESS;
 }
 
@@ -670,12 +670,12 @@ NTSTATUS WINAPI LsaOpenPolicy(
     IN ACCESS_MASK DesiredAccess,
     IN OUT PLSA_HANDLE PolicyHandle)
 {
-    TRACE("(%s,%p,0x%08x,%p) semi-stub\n",
+    FIXME("(%s,%p,0x%08x,%p) stub\n",
           SystemName?debugstr_w(SystemName->Buffer):"(null)",
           ObjectAttributes, DesiredAccess, PolicyHandle);
 
     ADVAPI_ForceLocalComputer(SystemName ? SystemName->Buffer : NULL,
-                              RPC_NT_SERVER_UNAVAILABLE);
+                              STATUS_ACCESS_VIOLATION);
     dumpLsaAttributes(ObjectAttributes);
 
     if(PolicyHandle) *PolicyHandle = (LSA_HANDLE)0xcafe;
